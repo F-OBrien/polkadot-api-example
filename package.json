@@ -1,0 +1,33 @@
+{
+  "name": "polkadot-api-polymesh-example",
+  "version": "1.0.0",
+  "description": "Example TypeScript project demonstrating Polkadot.js API usage with Polymesh",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "polkadot",
+    "polymesh",
+    "typescript",
+    "blockchain",
+    "substrate"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@polkadot/api": "^10.13.1",
+    "@polkadot/keyring": "^12.6.2",
+    "@polkadot/util": "^12.6.2",
+    "@polkadot/util-crypto": "^12.6.2",
+    "@polymeshassociation/polymesh-types": "^6.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}
