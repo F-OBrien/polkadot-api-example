@@ -242,23 +242,9 @@ async function executeTransferWithMemo(
               const { event } = eventRecord;
 
               // Only show detailed output for key events
-              if (event.section === 'balances' && event.method === 'Transfer') {
-                console.log(
-                  `\n📅 Event ${index + 1}: ${event.section}.${event.method}`,
-                );
-              } else if (
-                event.section === 'system' &&
-                (event.method === 'ExtrinsicSuccess' ||
-                  event.method === 'ExtrinsicFailed')
-              ) {
-                console.log(
-                  `📅 Event ${index + 1}: ${event.section}.${event.method}`,
-                );
-              } else {
-                console.log(
-                  `📅 Event ${index + 1}: ${event.section}.${event.method}`,
-                );
-              }
+              console.log(
+                `\n📅 Event ${index + 1}: ${event.section}.${event.method}`,
+              );
 
               if (api.events.system.ExtrinsicFailed.is(event)) {
                 console.error('❌ Transaction failed');
