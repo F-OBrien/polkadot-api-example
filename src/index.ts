@@ -2,12 +2,14 @@
 // These imports add Polymesh-specific types to the standard Polkadot.js API
 import '@polymeshassociation/polymesh-types/polkadot/augment-types';
 import '@polymeshassociation/polymesh-types/polkadot/augment-api';
+import '@polymeshassociation/polymesh-types/polkadot/types-lookup';
 
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { Keyring } from '@polkadot/keyring';
 import type { KeyringPair } from '@polkadot/keyring/types';
 import { typesBundle } from '@polymeshassociation/polymesh-types';
-import { formatBalance } from '@polkadot/util';
+import { formatBalance, isAscii } from '@polkadot/util';
+import type { PolymeshPrimitivesMemo } from '@polkadot/types/lookup';
 
 // Configuration constants
 const POLYMESH_ENDPOINT = 'wss://testnet-rpc.polymesh.live';
@@ -16,6 +18,16 @@ const BOB_SEED = '//Bob'; // Development account - never use on mainnet
 const TRANSFER_AMOUNT = 100000; // 0.1 POLYX in Planck units (POLYX has 6 decimal places)
 const MEMO = 'Example transfer with memo';
 const MAX_MEMO_LENGTH = 32; // Polymesh memo maximum length in bytes
+
+// Formatting configuration for POLYX amounts
+const POLYX_FORMAT_CONFIG = {
+  decimals: 6,
+  withUnit: 'POLYX',
+  withSi: true,
+  forceUnit: '-',
+  withZero: false,
+  withAll: true,
+} as const;
 
 /**
  * Pad a string to the specified length with null characters
@@ -29,7 +41,7 @@ function padString(value: string, length: number): string {
  * Create a Polymesh memo from a string
  * Follows the same approach as the Polymesh SDK for memo creation
  */
-function stringToMemo(api: ApiPromise, value: string): any {
+function stringToMemo(api: ApiPromise, value: string): PolymeshPrimitivesMemo {
   if (value.length > MAX_MEMO_LENGTH) {
     throw new Error(
       `Max memo length exceeded. Max: ${MAX_MEMO_LENGTH}, provided: ${value.length}`,
@@ -38,6 +50,26 @@ function stringToMemo(api: ApiPromise, value: string): any {
 
   const paddedValue = padString(value, MAX_MEMO_LENGTH);
   return api.createType('PolymeshPrimitivesMemo', paddedValue);
+}
+
+/**
+ * Helper function to extract string value from Option type
+ */
+function optionToString(option: any): string | undefined {
+  return option.isSome ? option.unwrap().toString() : undefined;
+}
+
+/**
+ * Decode a memo back to readable text
+ */
+function decodeMemo(memo: PolymeshPrimitivesMemo): string {
+  let str = memo.toUtf8();
+
+  //strip trailing nulls
+  str = str.replace(/\0+$/, '');
+
+  // if printable ASCII, return string; else fallback to hex
+  return isAscii(str) ? str : memo.toHex();
 }
 
 /**
@@ -108,8 +140,8 @@ async function checkBalances(
     ]);
 
     // Extract free balance amounts (using type assertion for compatibility)
-    const aliceBalance = (aliceInfo as any).data.free.toString();
-    const bobBalance = (bobInfo as any).data.free.toString();
+    const aliceBalance = aliceInfo.data.free.toString();
+    const bobBalance = bobInfo.data.free.toString();
 
     console.log(
       `Alice balance: ${formatBalance(aliceBalance, {
@@ -133,7 +165,7 @@ async function checkBalances(
     );
 
     // Check if Alice has sufficient balance for transfer
-    const aliceBalanceBN = (aliceInfo as any).data.free.toBn();
+    const aliceBalanceBN = aliceInfo.data.free.toBn();
     const transferAmountBN = api.createType('Balance', TRANSFER_AMOUNT);
 
     if (aliceBalanceBN.lt(transferAmountBN)) {
@@ -172,14 +204,7 @@ async function executeTransferWithMemo(
 
     // Display transaction details
     console.log(
-      `Transfer amount: ${formatBalance(TRANSFER_AMOUNT, {
-        withSi: true,
-        withUnit: 'POLYX',
-        forceUnit: '-',
-        withZero: false,
-        decimals: 6,
-        withAll: true,
-      })}`,
+      `Transfer amount: ${formatBalance(TRANSFER_AMOUNT, POLYX_FORMAT_CONFIG)}`,
     );
     console.log(`Memo: "${MEMO}"`);
     console.log(`From: ${alice.address}`);
@@ -188,14 +213,10 @@ async function executeTransferWithMemo(
     // Get transaction fee estimate
     const paymentInfo = await transfer.paymentInfo(alice);
     console.log(
-      `Estimated fee: ${formatBalance(paymentInfo.partialFee.toString(), {
-        withSi: true,
-        withUnit: 'POLYX',
-        forceUnit: '-',
-        withZero: false,
-        decimals: 6,
-        withAll: true,
-      })}`,
+      `Estimated fee: ${formatBalance(
+        paymentInfo.partialFee.toString(),
+        POLYX_FORMAT_CONFIG,
+      )}`,
     );
 
     console.log('\n⏳ Submitting transaction...');
@@ -203,7 +224,7 @@ async function executeTransferWithMemo(
     // Sign and submit the transaction, wrapping in Promise to wait for completion
     await new Promise<void>((resolve, reject) => {
       transfer
-        .signAndSend(alice, (result: any) => {
+        .signAndSend(alice, (result) => {
           console.log(`📋 Transaction status: ${result.status.type}`);
 
           if (result.status.isInBlock) {
@@ -217,30 +238,57 @@ async function executeTransferWithMemo(
             );
 
             // Process events to check for success or failure
-            result.events.forEach(
-              ({ event: { data, method, section } }: any) => {
+            result.events.forEach((eventRecord, index) => {
+              const { event } = eventRecord;
+
+              // Only show detailed output for key events
+              if (event.section === 'balances' && event.method === 'Transfer') {
                 console.log(
-                  `\t📅 Event: ${section}.${method}:: ${data.toString()}`,
+                  `\n📅 Event ${index + 1}: ${event.section}.${event.method}`,
                 );
+              } else if (
+                event.section === 'system' &&
+                (event.method === 'ExtrinsicSuccess' ||
+                  event.method === 'ExtrinsicFailed')
+              ) {
+                console.log(
+                  `📅 Event ${index + 1}: ${event.section}.${event.method}`,
+                );
+              } else {
+                console.log(
+                  `📅 Event ${index + 1}: ${event.section}.${event.method}`,
+                );
+              }
 
-                if (section === 'system' && method === 'ExtrinsicFailed') {
-                  console.error('❌ Transaction failed');
-                  reject(new Error('Transaction failed'));
-                  return;
-                } else if (section === 'balances' && method === 'Transfer') {
-                  console.log('💸 Transfer successful!');
-                }
-              },
-            );
+              if (api.events.system.ExtrinsicFailed.is(event)) {
+                console.error('❌ Transaction failed');
+                reject(new Error('Transaction failed'));
+                return;
+              }
 
-            console.log('✅ Transaction completed successfully');
+              if (api.events.balances.Transfer.is(event)) {
+                const [fromDid, from, toDid, to, amount, memo] = event.data;
+
+                const memoStr = memo.isSome ? decodeMemo(memo.unwrap()) : '';
+
+                console.log(`💸 Transfer Details:
+    📋 From DID: ${optionToString(fromDid) || ''}
+    👤 From Account: ${from}
+    📋 To DID: ${optionToString(toDid) || ''}
+    👤 To Account: ${to}
+    💰 Amount: ${formatBalance(amount, POLYX_FORMAT_CONFIG)}
+    📝 Memo: ${memoStr}`);
+              }
+            });
+
+            console.log('\n🎉 Transaction completed successfully');
             resolve();
-          } else if (result.status.isError || result.isError) {
+          } else if (result.status.isDropped || result.status.isInvalid) {
             console.error('❌ Transaction error:', result.status);
             reject(new Error(`Transaction error: ${result.status}`));
           }
         })
-        .catch((error: any) => {
+        .catch((error) => {
           console.error('❌ Error submitting transaction:', error);
           reject(error);
         });
